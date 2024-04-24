@@ -54,6 +54,9 @@ pkgs.mkShell {
         rshell)
           rshell -p /dev/ttyUSB0
           ;;
+        screen)
+          screen /dev/ttyUSB0 115200
+          ;;
         *)
           echo "Usage: esp-fc [install|deploy|rshell]"
           ;;
