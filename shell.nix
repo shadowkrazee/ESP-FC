@@ -48,7 +48,7 @@ pkgs.mkShell {
           ;;
         deploy)
           mkdir -p ./src/lib
-          cp -f ./lib/microdot/microdot.py ./src/lib/
+          cp -u ./lib/microdot/microdot.py ./src/lib/
           rshell -p /dev/ttyUSB0 rsync -m src /pyboard
           ;;
         rshell)

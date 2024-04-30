@@ -13,6 +13,7 @@ Authored by:
 
 # Dependencies
 **Runtime**
+- Micropython firmware: [download](https://micropython.org/download/)
 - [microdot](https://github.com/miguelgrinberg/microdot) for REST API. [Docs](https://microdot.readthedocs.io/en/stable/intro.html#running-with-micropython)
 
 **Development**
@@ -28,7 +29,7 @@ Authored by:
 - Run `nix-shell` to initialize dev environment
 - To Flash your ESP for the first time, run the following:
     - `esptool.py --chip esp32 --port /dev/ttyUSB0 erase_flash`
-    - `esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash -z 0x1000 MicroPython_FW/ESP32_GENERIC-20240222-v1.22.2.bin`
+    - `esptool.py --chip esp32 --port /dev/ttyUSB0 --baud 460800 write_flash -z 0x1000 path/to/firmware.bin`
     
 - **esp-fc**
 
