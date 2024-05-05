@@ -7,27 +7,32 @@ import esp32
 import network
 import uasyncio
 from microdot import Microdot
-from config import FCConfig
+from ESPFC import APIHelper, Config, Fan, Sensor
 
+config: Config
 rest_server = Microdot()
 station = None
-pwms = []
 
 # Daddy loves Juniper Alessi
 
-async def init_fans():
-    print('Initializing fans...')
-    for index, fan in enumerate(FCConfig.fans):
-            duty_percent = fan['base_speed']
-            duty_16 = int(duty_percent * 65535 / 100)
-            pwms.append(machine.PWM(machine.Pin(fan['pwm_pin']), freq=25000, duty_u16=duty_16))
-            fan['current_speed'] = duty_percent
-            print(f'Fan "{fan['name']}" duty cycle set to: {duty_percent}')
+async def init_config():
+    print('Initializing ESP-FC Configuration...')
+    global config
+    config = Config('config.json')
 
-async def init_sensors():
-    print('Initializing sensors...')
-    # TODO: IMPLEMENT ME
-    print(esp32.raw_temperature()) # read the internal temperature of the MCU, in Fahrenheit
+# async def init_fans():
+#     print('Initializing fans...')
+#     for index, fan in enumerate(Config.fans):
+#             duty_percent = fan['base_speed']
+#             duty_16 = int(duty_percent * 65535 / 100)
+#             pwms.append(machine.PWM(machine.Pin(fan['pwm_pin']), freq=25000, duty_u16=duty_16))
+#             fan['current_speed'] = duty_percent
+#             print(f'Fan "{fan['name']}" duty cycle set to: {duty_percent}')
+
+# async def init_sensors():
+#     print('Initializing sensors...')
+#     # TODO: IMPLEMENT ME
+#     print(esp32.raw_temperature()) # read the internal temperature of the MCU, in Fahrenheit
 
 async def init_routes():
     global rest_server
@@ -44,64 +49,41 @@ async def init_routes():
         # Collect garbage after eact REST call
         gc.collect()
     
-    @rest_server.route('/')
+    @rest_server.route('/rpm')
     async def index(request):
         return 'Hello, world!'
     
     @rest_server.route('/fan-speed', methods=['GET', 'POST'])
     async def fan_speed(request):
+        global config
         response = f'Method "{request.method}" not supported on this route'
         # parse required args (common)
-        fan = request.args.get('fan', None)
-        fan_config = None
-        if fan is None:
-                return ({'error': 'Bad Request: param "fan" is required'}, 400)
+        parsed_args = APIHelper.parse_args(request.args, {'fan': ('int|string', None), 'speed': ('int', None)})
         
-        # Attempt to convert the fan to an int
-        try:
-             fan = int(fan)
-        except:
-             pass
+        if parsed_args['fan'] is None:
+                return ({'Error': 'Bad Request: param "fan: int|string" is required'}, 400)
         
-        if isinstance(fan, str):
-             print('fan name provided, searching...')
-             match = next((f for f in FCConfig.fans if f['name'] == fan))
-             if not match:
-                return ({'error': 'Bad Request: param "fan" no matching name found'}, 400)
-             print('match found:')
-             print(match)
-             fan_config = match
-        elif isinstance(fan, int):
-            if not fan < len(FCConfig.fans):
-                return ({'error': 'Bad Request: param "fan" index out of range'}, 400)
-            fan_config = FCConfig.fans[fan]
-        else:
-            return ({'error': 'Bad Request: param "fan" should be an int or string'}, 400)
+        # Get the Fan instance from the config
+        fan_instance = config.get_fan(parsed_args['fan'])
+        
+        if fan_instance is None:
+                return ({'Error': f'Bad Request: Fan "{parsed_args['fan']}" not found, or index out of range'}, 400)
         
         # Handle GET
         if request.method == 'GET':
             print('Handling GET /fan-speed')
-            response = fan_config['current_speed']
+            response = fan_instance.current_speed
         # Handle SET
         elif request.method == 'POST':
             print('Handling POST /fan-speed')
-            # Parse out the speed param
-            speed = request.args.get('speed', None)
+            speed = parsed_args['speed']
             if speed is None:
-                    return ({'error': 'Bad Request: param "speed" is required'}, 400)
-            try:
-                speed = int(speed)
-            except:
-                 return ({'error': 'Bad Request: param "speed" must be an integer 1-100'}, 400)
+                    return ({'error': 'Bad Request: param "speed: int" is required'}, 400)
             if (speed < 0 or speed > 100):
-                return ({'error': 'Bad Request: param "speed" must be an integer 1-100'}, 400)
+                return ({'error': 'Bad Request: param "speed" must be an integer 0-100'}, 400)
             # Set the speed
-            # TODO: Fan class with functions..
-            duty_percent = speed
-            # TODO: Un-hard-code this...
-            pwms[0].duty_u16(int(duty_percent * 65535 / 100))
-            fan_config['current_speed'] = duty_percent
-            response = f'Fan "{fan_config['name']}" duty cycle set to: {duty_percent}'
+            fan_instance.set_speed(speed)
+            response = f'Fan "{fan_instance.name}" duty cycle set to: {fan_instance.current_speed}'
             print(response)
         
         return str(response)
@@ -120,7 +102,7 @@ async def init_network():
   station.scan()
 
   try:
-    station.connect(FCConfig.wifi['ssid'], FCConfig.wifi['password'])
+    station.connect(Config.wifi['ssid'], Config.wifi['password'])
   except Exception as ex:
     print(ex)
     print('Error connecting to network, trying again?')
@@ -145,17 +127,16 @@ async def init_network():
 
 async def main():
     global rest_server
-    # Initialize your devices and variables here
-    # For example, setup GPIO pins or sensors
     print("ESP-FC started.")
     # Give the fans time to spin up
     await uasyncio.sleep_ms(500)
-    await init_fans()
-    print('Fans Initialized.')
-    await init_sensors()
-    print('Sensors Initialized.')
+    # Init Config, Fans, and Sensors
+    await init_config()
+    print('ESP-FC Initialized.')
+    # Init API endpoints
     await init_routes()
     print('Routes Initialized.')
+    # Init Wifi connection
     await init_network()
     network_status = 'Initialized' if station.status() == 1010 else 'Initialization failed'
     print(f'Network {network_status}.')

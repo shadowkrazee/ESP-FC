@@ -1,0 +1,31 @@
+{
+    "wifi" : {
+        "ssid": "WIFI_SSID",
+        "password": "WIFI_PASSWORD"
+    },
+    "api" : {
+        "port": 8519,
+        "debug": true
+    },
+    "fans" : [
+        {
+            "name": "intake",
+            "num_fans": 4,
+            "base_speed": 40,
+            "pwm_pin": 20,
+            "tach_pin": 18
+        }, {
+            "name": "exhaust",
+            "num_fans": 4,
+            "base_speed": 40,
+            "pwm_pin": 21,
+            "tach_pin": 19
+        }
+    ],
+    "sensors": [
+        {
+            "name": "esp",
+            "type": "esp32_onboard"
+        }
+    ]
+}
