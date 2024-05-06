@@ -3,7 +3,7 @@ import time
 import gc
 sys.path.append('/lib')
 import machine
-import esp32
+
 import network
 import uasyncio
 from microdot import Microdot
@@ -20,39 +20,43 @@ async def init_config():
     global config
     config = Config('config.json')
 
-# async def init_fans():
-#     print('Initializing fans...')
-#     for index, fan in enumerate(Config.fans):
-#             duty_percent = fan['base_speed']
-#             duty_16 = int(duty_percent * 65535 / 100)
-#             pwms.append(machine.PWM(machine.Pin(fan['pwm_pin']), freq=25000, duty_u16=duty_16))
-#             fan['current_speed'] = duty_percent
-#             print(f'Fan "{fan['name']}" duty cycle set to: {duty_percent}')
-
-# async def init_sensors():
-#     print('Initializing sensors...')
-#     # TODO: IMPLEMENT ME
-#     print(esp32.raw_temperature()) # read the internal temperature of the MCU, in Fahrenheit
-
 async def init_routes():
     global rest_server
     print('Initializing routes...')
+    # ############################################ #
+    # Get current temp of a Sensor by name or index
+    @rest_server.route('/temp')
+    async def temp(request):
+        global config
+        response = f'Method "{request.method}" not supported on this route'
+        # parse required args (common)
+        parsed_args = APIHelper.parse_args(request.args, {'sensor': ('int|string', None)})
+        sensor_instance = config.get_sensor(parsed_args['sensor'])
+        if sensor_instance is None:
+                return ({'Error': f'Bad Request: Sensor "{parsed_args['sensor']}" not found, or index out of range'}, 400)
+        current_temp = await sensor_instance.read_temp()
+        if current_temp is None:
+                return ({'Error': f'Bad Request: Sensor type"{sensor_instance.type}" not yet supported'}, 400)
+        response = f'Sensor "{sensor_instance.name}" current temp: {current_temp}'
+        return response
 
-    @rest_server.before_request
-    async def before(request):
-        request.g.start_time = time.time()
-
-    @rest_server.after_request
-    async def after(request, response):
-        duration = time.time() - request.g.start_time
-        print(f'Request to {request.path} took {duration:0.2f} seconds')
-        # Collect garbage after eact REST call
-        gc.collect()
-    
+    # ############################################ #
+    # Get current RPM of a Fan by name or index
     @rest_server.route('/rpm')
-    async def index(request):
-        return 'Hello, world!'
+    async def rpm(request):
+        global config
+        response = f'Method "{request.method}" not supported on this route'
+        # parse required args (common)
+        parsed_args = APIHelper.parse_args(request.args, {'fan': ('int|string', None)})
+        fan_instance = config.get_fan(parsed_args['fan'])
+        if fan_instance is None:
+                return ({'Error': f'Bad Request: Fan "{parsed_args['fan']}" not found, or index out of range'}, 400)
+        current_rpm = await fan_instance.read_rpm()
+        response = f'WARNING: This feature is not yet fully impemented and currently returns nonsense!\nFan "{parsed_args['fan']}" current rpm: {current_rpm}'
+        return response
     
+    # ############################################ #
+    # Get or Set speed of a fan by name or index
     @rest_server.route('/fan-speed', methods=['GET', 'POST'])
     async def fan_speed(request):
         global config
@@ -88,9 +92,22 @@ async def init_routes():
         
         return str(response)
     
+    # ############################################ #
+    # Global API handlers
+    @rest_server.before_request
+    async def before(request):
+        request.g.start_time = time.time()
+
+    @rest_server.after_request
+    async def after(request, response):
+        duration = time.time() - request.g.start_time
+        print(f'Request to {request.path} took {duration:0.2f} seconds')
+        # Collect garbage after eact REST call
+        gc.collect()
+    
     @rest_server.errorhandler(404)
     async def not_found(request):
-        return {'error': 'resource not found'}, 404
+        return {'error': '404 - resource not found'}, 404
     
 async def init_network():
   print('Initializing network...')

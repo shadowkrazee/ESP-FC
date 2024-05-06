@@ -1,6 +1,7 @@
 from machine import Pin, PWM
 import utime
 import uasyncio
+import esp32
 import json
 # ############################################ #
 #                  ESP-FC Fan                  #
@@ -31,6 +32,8 @@ class Fan:
         def count_pulse(p:Pin):
             global pulses
             pulses += 1
+            if (pulses % 2 == 0):
+                print('.', end='')
 
         # Record start time
         start_time = utime.ticks_ms()
@@ -41,9 +44,26 @@ class Fan:
         # Disable the interrupt
         self.tach_pin.irq(handler=None)
         # Calculate the read duration
-        duration = utime.ticks_diff(start_time, end_time)
+        duration = abs(utime.ticks_diff(start_time, end_time))
+        # Protect against divide-by-zero
+        if duration <= 0:
+            duration = 1
         # Calculate and return the rpm
-        return (pulses / 2) * (60*(duration/1000))
+        revs = (pulses / 2) 
+        time_factor = 60000 / duration
+        rpm = revs * time_factor
+        # DEBUG PRINTS:
+        report = '{\n'
+        report += f'start_time: {start_time}\n'
+        report += f'end_time: {end_time}\n'
+        report += f'duration: {duration}\n'
+        report += f'revs: {revs}\n'
+        report += f'time_factor: {time_factor}\n'
+        report += f'rpm: {rpm}\n'
+        report += '}'
+        print(report)
+        
+        return rpm
 
 
     def __init__(self, cfg_dict):
@@ -56,7 +76,7 @@ class Fan:
             if rk == 'pwm_pin':
                 self.pwm_pin = Pin(cfg_dict[rk])
             else:
-                self.tach_pin = Pin(cfg_dict[rk], Pin.IN)
+                self.tach_pin = Pin(cfg_dict[rk], mode=Pin.IN, pull=Pin.PULL_DOWN)
         # Optional fields, override defaults if specified
         self.name = cfg_dict.get('name', self.name)
         self.num_fans = cfg_dict.get('num_fans', self.num_fans)
@@ -85,9 +105,15 @@ class Sensor:
         'UNKNOWN': 'unknown'
     }
 
+    async def read_temp(self):
+        if self.type == self.types['ESP32']:
+            return esp32.raw_temperature() 
+        else:
+            return None
+
     def __init__(self, cfg_dict):
         self.name = cfg_dict.get('name', self.name)
-        self.type = [k for k, i in self.types.items() if  i == cfg_dict.get('type', 'unknown')][0]
+        self.type = [i for k, i in self.types.items() if  i == cfg_dict.get('type', 'unknown')][0]
         self.resistance = cfg_dict.get('resistance', self.resistance)
         self.ha_id = cfg_dict.get('ha_id', self.ha_id)
 
@@ -124,7 +150,7 @@ class Config:
         fan_match = None
         if isinstance(fan, str):
              print('fan name provided, searching...')
-             match = next((f for f in Config.fans if f['name'] == fan))
+             match = next((f for f in Config.fans if f.name == fan))
              if not match:
                 return None
              print('match found:')
@@ -137,6 +163,30 @@ class Config:
                 fan_match = Config.fans[fan]
 
         return fan_match
+    
+    # #####################################################
+    # Get the Sensor instance for a given name or index
+    def get_sensor(self, sensor):
+    # Returns: Sensor instance, or None if no match
+    # 
+    # params:
+    #   fan: The name or index of the desired Sensor 
+        sensor_match = None
+        if isinstance(sensor, str):
+             print('sensor name "{sensor}" provided, searching...')
+             match = next((s for s in Config.sensors if s.name == sensor))
+             if not match:
+                return None
+             print('match found:')
+             print(match)
+             sensor_match = match
+        elif isinstance(sensor, int):
+            if not sensor < len(self.sensors):
+                return None
+            else:
+                sensor_match = Config.sensors[sensor]
+
+        return sensor_match
 
     def __init__(self, cfg_file_name='config.sample.json'):
         with open(cfg_file_name) as cfg:
@@ -203,14 +253,16 @@ class APIHelper():
             'string': str
         }
         parsed_args = {}
-        for key, cfg in arg_configs:
+        for key, cfg in arg_configs.items():
             tps, default_val = cfg
             for typ in tps.split('|'):
                 try:
                     inVal = args.get(key, None)
                     outVal = default_val if inVal is None else types_dict.get(typ)(inVal)
                     parsed_args[key] = outVal
+                    print(f'"{key}" value "{inVal}" sucessfully parsed as type "{typ}".')
                     break
                 except(Exception) as ex:
                     print(f'Error attempting to parse "{key}" value "{inVal}" as type "{typ}": {ex}')
+                    continue
         return parsed_args
